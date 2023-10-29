@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-import os, sys, json
+import os, sys, json, typing, datetime
 
 fn = 'map_2.log'
 channel_filter = 'SRG-C'
@@ -7,8 +7,17 @@ if not os.path.isfile(fn):
   exit(1)
 
 objects = {}
+g_debug_printf: bool = True
 
 class Map:
+  def convert_items(self, data: typing.Optional[str]):
+    if not data:
+      return None
+    if '[' in data:
+      return json.loads(data)  # ["bubble"]
+    else:
+      return [data]  # stargate
+
   def deleted_connection(self, connection_id, dt, character, objct, path_base, path_ids):
     #print(path_base, '' if not path_ids else ",".join(path_ids))
     assert connection_id == "'wh'"
@@ -22,9 +31,11 @@ class Map:
       assert len(path_ids) >= 1
     else:
       assert path_base == ''
-    #print('<<<<< >>>>> del connection:', dt, character['name'], objct['objId'])
+    if g_debug_printf:
+      print('<<<<< >>>>> del connection:', dt, character['name'], objct['objId'])
     if path_base == '/api/rest/System':
-      pass #print('<<<<< >>>>> del systems:', ",".join(path_ids))
+      if g_debug_printf:
+        print('<<<<< >>>>> del systems:', ",".join(path_ids))
 
   def deleted_system(self, system_id, dt, character, objct, path_base, path_ids):
     #print(path_base, '' if not path_ids else ",".join(path_ids))
@@ -34,9 +45,11 @@ class Map:
       assert system_id == "'"+objct['objName']+"'"
     else:
       assert path_base == ''
-    #print('<<<<< >>>>> del system:', dt, character['name'], objct['objId'], objct['objName'])
+    if g_debug_printf:
+      print('<<<<< >>>>> del system:', dt, character['name'], objct['objId'], objct['objName'])
     if len(path_ids) > 1:
-      pass #print('<<<<< >>>>> del systems:', ",".join(path_ids))
+      if g_debug_printf:
+        print('<<<<< >>>>> del systems:', ",".join(path_ids))
 
   def deleted_signature(self, signature_id, dt, character, objct, path_base, path_ids):
     #print(path_base, '' if not path_ids else ",".join(path_ids))
@@ -45,18 +58,79 @@ class Map:
         assert str(objct['objId']) in path_ids
     else:
       assert path_base == ''
-    #print('<<<<< >>>>> del signature:', dt, character['name'], objct['objId'], objct['objName'])
+    if g_debug_printf:
+      print('<<<<< >>>>> del signature:', dt, character['name'], objct['objId'], objct['objName'])
     if len(path_ids) > 1:
-      pass #print('<<<<< >>>>> del signatures:', ",".join(path_ids))
+      if g_debug_printf:
+        print('<<<<< >>>>> del signatures:', ",".join(path_ids))
 
   def updated_connection(self, connection_id, dt, character, objct, main, path_base, path_ids):
-    pass
+    #print(path_base, '' if not path_ids else ",".join(path_ids), main)
+    assert connection_id in ["'wh'","'stargate'"]
+    assert objct['objName'] in ['wh','stargate']
+    if path_base == '/api/Map/updateUserData':
+      assert not path_ids
+    elif path_base == '/api/rest/Connection':
+      assert not path_ids
+    elif path_base == '/api/Map/updateData':
+      assert not path_ids
+    elif path_base == '/api/Map/updateUnloadData':
+      assert not path_ids
+    else:
+      assert path_base == ''
+    if main.get('source'):
+      assert main['source'].get('new') is not None
+    if main.get('target'):
+      assert main['target'].get('new') is not None
+    if 'scope' in main:
+      assert main['scope']['new'] in ['wh','stargate']
+    assert len(set(main.keys()) - set(['source','target','type','scope','sourceEndpointType','targetEndpointType'])) == 0
+    source: int = main['source'].get('new') if 'source' in main else None
+    target: int = main['target'].get('new') if 'target' in main else None
+    typ = self.convert_items(main['type'].get('new')) if 'type' in main else None  # '["wh_fresh","wh_jump_mass_l"]'
+    scope: str = main['scope'].get('new') if 'scope' in main else None  # 'stargate'
+    sourceEndpointType = self.convert_items(main['sourceEndpointType'].get('new')) if 'sourceEndpointType' in main else None  # '["bubble"]'
+    targetEndpointType = self.convert_items(main['targetEndpointType'].get('new')) if 'targetEndpointType' in main else None  # '["bubble"]'
+    if g_debug_printf:
+      print('<<<<< >>>>> upd connection:', dt, character['name'], objct['objId'], source, target, typ, scope, sourceEndpointType)
 
   def updated_system(self, system_id, dt, character, objct, main, path_base, path_ids):
-    pass
+    #print(path_base, '' if not path_ids else ",".join(path_ids), main)
+    if path_base == '/api/Map/updateUserData':
+      assert not path_ids
+    elif path_base == '/api/Map/updateData':
+      assert not path_ids
+    elif path_base == '/api/rest/System':
+      if path_ids:
+        assert len(path_ids) == 1
+        assert str(objct['objId']) in path_ids
+    else:
+      assert path_base == ''
+    assert len(set(main.keys()) - set(['active','locked','statusId','description','alias','rallyPoke'])) == 0
+    locked: bool = True if 'locked' in main and main['locked']['new'] == 1 else None
+    statusId: bool = main['statusId'].get('new') if 'statusId' in main else None
+    description: str = main['description'].get('new') if 'description' in main else None
+    alias: str = main['alias'].get('new') if 'alias' in main else None
+    rallyPoke: int = main['rallyPoke'].get('new') if 'rallyPoke' in main else None
+    if g_debug_printf:
+      print('<<<<< >>>>> upd system:', dt, character['name'], objct['objId'], objct['objName'], locked, statusId, description, alias, rallyPoke)
 
   def updated_signature(self, signature_id, dt, character, objct, main, path_base, path_ids):
-    pass
+    #print(path_base, '' if not path_ids else ",".join(path_ids), main)
+    if path_base == '/api/rest/Signature':
+      if path_ids:
+        assert len(path_ids) == 1
+        assert str(objct['objId']) in path_ids
+    else:
+      assert path_base == ''
+    assert len(set(main.keys()) - set(['groupId','typeId','name','description','connectionId'])) == 0
+    groupId: int = main['groupId'].get('new') if 'groupId' in main else None
+    typeId: int = main['typeId'].get('new') if 'typeId' in main else None
+    name: int = main['name'].get('new') if 'name' in main else None
+    description: int = main['description'].get('new') if 'description' in main else None
+    connectionId: int = main['connectionId'].get('new') if 'connectionId' in main else None
+    if g_debug_printf:
+      print('<<<<< >>>>> upd signature:', dt, character['name'], objct['objId'], objct['objName'], groupId, typeId, name, description, connectionId)
 
   def created_connection(self, connection_id, dt, character, objct, main, path_base, path_ids):
     #print(path_base, '' if not path_ids else ",".join(path_ids), main)
@@ -78,7 +152,10 @@ class Map:
       assert main['scope']['new'] in ['wh','stargate']
     if 'type' in main:
       assert main['type']['new'] in ['["wh_fresh"]','["stargate"]']
-    #print('<<<<< >>>>> add connection:', dt, character['name'], objct['objId'], source, target)
+    typ = self.convert_items(main['type'].get('new')) if 'type' in main else None  # '["wh_fresh","stargate"]'
+    scope: str = main['scope'].get('new') if 'scope' in main else None  # 'stargate'
+    if g_debug_printf:
+      print('<<<<< >>>>> add connection:', dt, character['name'], objct['objId'], source, target, typ, scope)
 
   def created_system(self, system_id, dt, character, objct, main, path_base, path_ids):
     #print(path_base, '' if not path_ids else ",".join(path_ids), main)
@@ -94,7 +171,8 @@ class Map:
     assert len(set(main.keys()) - set(['active','locked','statusId'])) == 0
     locked: bool = True if 'locked' in main and main['locked']['new'] == 1 else None
     statusId: bool = main['statusId'].get('new') if 'statusId' in main else None
-    #print('<<<<< >>>>> add system:', dt, character['name'], objct['objId'], objct['objName'], locked, statusId)
+    if g_debug_printf:
+      print('<<<<< >>>>> add system:', dt, character['name'], objct['objId'], objct['objName'], locked, statusId)
 
   def created_signature(self, signature_id, dt, character, objct, main, path_base, path_ids):
     #print(path_base, '' if not path_ids else ",".join(path_ids), main)
@@ -112,8 +190,13 @@ class Map:
     assert main['name'].get('new') == objct['objName']
     assert main.get('description')
     assert main['description'].get('old') is None
+    groupId: int = main['groupId'].get('new') if 'groupId' in main else None
+    typeId: int = main['typeId'].get('new') if 'typeId' in main else None
+    name: int = main['name'].get('new') if 'name' in main else None
+    description: int = main['description'].get('new') if 'description' in main else None
     #assert main['description'].get('new') == 'Разрушенный научный аванпост Gurista (Ruined Guristas Science Outpost)'
-    #print('<<<<< >>>>> add signature:', dt, character['name'], objct['objId'], objct['objName'])
+    if g_debug_printf:
+      print('<<<<< >>>>> add signature:', dt, character['name'], objct['objId'], objct['objName'], groupId, typeId, name, description)
 
 map = Map()
 with open(fn) as f:
@@ -131,14 +214,15 @@ with open(fn) as f:
     character_name = character.get('name')
     channel = data.get('channel')
     formatted = data.get('formatted')
-    dt = obj.get('datetime')
+    dt = datetime.datetime.strptime(obj.get('datetime'),"%Y-%m-%dT%H:%M:%S.%f+00:00")  # "2023-10-27T07:38:33.856015+00:00"
+    dt = dt.replace(microsecond=0)
     extra = obj.get('extra')
     path = extra.get('path')
     thumb = extra.get('thumb')
     url = thumb.get('url')
     object_id, object_name = objct.get('objId'), objct.get('objName')
     if channel.get('channelName') != channel_filter: continue
-    #if character_name != 'Qunibbra Do': continue
+    #debug:if character_name != 'Qunibbra Do': continue
 
     if message_type == 'map':
       continue
@@ -180,7 +264,10 @@ with open(fn) as f:
     else:
       objects.update({str(object_id): object_name})
 
-    kuk = False
+    # установка этой переменной приведёт к выводу информации
+    # по разбору данных в текущей строке
+    debug_this_line = False
+
     if not main or main.get('active') and main['active']['old'] and not main['active']['new']:
       if not formatted.startswith("Deleted "+message_type):
         print('Unknown deletion:', obj)
@@ -219,7 +306,6 @@ with open(fn) as f:
           map.updated_connection(message_id, dt, character, objct, main, path_base, path_ids)
         elif message_type == 'system':
           map.updated_system(message_id, dt, character, objct, main, path_base, path_ids)
-          kuk = True
         elif message_type == 'signature':
           map.updated_signature(message_id, dt, character, objct, main, path_base, path_ids)
       else:
@@ -233,26 +319,27 @@ with open(fn) as f:
         elif message_type == 'signature':
           map.created_signature(message_id, dt, character, objct, main, path_base, path_ids)
 
-    # удаляем обработанные тэги, чтобы было видно что именно ещё осталось необработанным?
-    del obj['message']
-    del obj['context']['data']['character']
-    del obj['context']['data']['channel']
-    del obj['context']['data']['object']
-    del obj['context']['data']['formatted']
-    del obj['context']['tag']
-    del obj['datetime']
-    del obj['level']
-    del obj['level_name']
-    del obj['channel']
-    del obj['extra']['path']
-    del obj['extra']['ip']
-    del obj['extra']['thumb']
-    if not obj['extra']: del obj['extra']
-    if not obj['context']['data']['main']: del obj['context']['data']['main']
-    if not obj['context']['data']: del obj['context']['data']
-    if not obj['context']: del obj['context']
-    if kuk:
-      if obj: print(obj, "\n")
+    if debug_this_line:
+      # удаляем обработанные тэги, чтобы было видно что именно ещё осталось необработанным?
+      del obj['message']
+      del obj['context']['data']['character']
+      del obj['context']['data']['channel']
+      del obj['context']['data']['object']
+      del obj['context']['data']['formatted']
+      del obj['context']['tag']
+      del obj['datetime']
+      del obj['level']
+      del obj['level_name']
+      del obj['channel']
+      del obj['extra']['path']
+      del obj['extra']['ip']
+      del obj['extra']['thumb']
+      if not obj['extra']: del obj['extra']
+      if not obj['context']['data']['main']: del obj['context']['data']['main']
+      if not obj['context']['data']: del obj['context']['data']
+      if not obj['context']: del obj['context']
+      if obj:
+        print(obj, "\n")
       print(
           dt,
           '|', message_type, message_parts[1],
