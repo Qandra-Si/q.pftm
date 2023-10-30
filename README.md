@@ -7,7 +7,7 @@
 ```bash
 mkdir ~/q.pftm
 cd ~/q.pftm
-git clone git@github.com:Qandra-Si/q.pftm.git ./
+git clone https://github.com/Qandra-Si/q.pftm.git ./
 
 wget http://<адрес-вашего-сервера>/history/map/map_2.log
 ./pftm.py --map=map_2.log
