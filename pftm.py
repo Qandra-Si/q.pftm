@@ -26,7 +26,96 @@ objects = {}
 g_debug_printf: typing.Optional[bool] = None
 g_channel_filter: typing.Optional[str] = None
 
-class Map:
+class PfSystem:
+  def __init__(self, id: int, nm: str, at: datetime.datetime):
+    self.id: int = id
+    self.nm: str = nm
+    self.at: datetime.datetime = at
+    self.last: datetime.datetime = at
+    self.locked: typing.Optional[bool] = None
+    self.statusId: typing.Optional[bool] = None
+
+class PfConnection:
+  def __init__(self, id: int, source: int, target: int, at: datetime.datetime):
+    self.id: int = id
+    self.source: int = source
+    self.target: int = target
+
+class PfStorage:
+  def __init__(self):
+    self.systems: typing.Dict[int, PfSystem] = {}
+    self.connections: typing.Dict[int, PfConnection] = {}
+
+  def get_system(self, id: int) -> typing.Optional[PfSystem]:
+    s: typing.Optional[PfSystem] = self.systems.get(int(id), None)
+    return s
+
+  def add_system(self, id: int, nm: str, at: datetime.datetime) -> PfSystem:
+    _id: int = int(id)
+    assert self.systems.get(_id) is None
+    # название системы должно быть указано
+    assert nm is not None
+    # на самом деле на карте может существовать несколько систем с одинаковым названием и разными id
+    # судя по всему это происходит тогда, на карту наносится вручную? уже существующая там система
+    # у таких систем будут разные id, но одинаковое название (например лоусек)
+    self.systems[_id] = PfSystem(_id, nm, at)
+    return self.systems.get(_id)
+
+  def del_system(self, id: int, dt: datetime.datetime):
+    _id: int = int(id)
+    # если лог пишется не с самого начала (это нормально), то тут может быть выполнена попытка удалить то, чего нет
+    s: typing.Optional[PfSystem] = self.get_system(_id)
+    if s is None:
+      if g_debug_printf:
+        print('FAIL: unable to delete system {} at {} (ignored)'.format(_id, dt))
+      return
+    else:
+      s.last = dt
+    del self.systems[_id]
+
+  def upd_system(self, id: int, nm: str, dt: datetime.datetime) -> PfSystem:
+    _id: int = int(id)
+    # если лог пишется не с самого начала (это нормально), то тут системы может не быть (создаём?)
+    s: typing.Optional[PfSystem] = self.get_system(_id)
+    if s is None:
+      if g_debug_printf:
+        print('FAIL: system {} not exists on update at {} (recreated)'.format(_id, dt))
+      s = self.add_system(_id, nm, dt)
+    s.last = dt
+    return s
+
+  def get_connection(self, id: int) -> typing.Optional[PfConnection]:
+    c: typing.Optional[PfConnection] = self.connections.get(int(id), None)
+    return c
+
+  def add_connection(self, id: int, src: int, tgt: int, at: datetime.datetime) -> PfConnection:
+    _id: int = int(id)
+    _src: int = int(src)
+    _tgt: int = int(tgt)
+    assert self.connections.get(_id) is None
+    self.connections[_id] = PfConnection(_id, _src, _tgt, at)
+    return self.connections.get(_id)
+
+  def del_connection(self, id: int, dt: datetime.datetime):
+    _id: int = int(id)
+    # если лог пишется не с самого начала (это нормально), то тут может быть выполнена попытка удалить то, чего нет
+    c: typing.Optional[PfConnection] = self.get_connection(_id)
+    # в том числе браузер отправляет несколько запросов на удаление одних и тех же систем (удаляется одна, которая
+    # тянет за собой группу других, и тут приходит запрос на удаление той системы, что была в группе, и снова удаляется
+    # вся группа)
+    if c is None:
+      if g_debug_printf:
+        print('FAIL: unable to delete connection {} at {} (ignored)'.format(_id, dt))
+      return
+    else:
+      c.last = dt
+    del self.connections[_id]
+
+
+class PfMap:
+  def __init__(self):
+    self.storage: PfStorage = PfStorage()
+
   def convert_items(self, data: typing.Optional[str]):
     if not data:
       return None
@@ -50,9 +139,10 @@ class Map:
       assert path_base == ''
     if g_debug_printf:
       print('<<<<< >>>>> del connection:', dt, character['name'], objct['objId'])
+    self.storage.del_connection(objct['objId'], dt)
     if path_base == '/api/rest/System':
       if g_debug_printf:
-        print('<<<<< >>>>> del systems:', ",".join(path_ids))
+        print('<<<<< >>>>> del connections:', dt, ",".join(path_ids))
 
   def deleted_system(self, system_id, dt, character, objct, path_base, path_ids):
     #print(path_base, '' if not path_ids else ",".join(path_ids))
@@ -64,9 +154,13 @@ class Map:
       assert path_base == ''
     if g_debug_printf:
       print('<<<<< >>>>> del system:', dt, character['name'], objct['objId'], objct['objName'])
+    self.storage.del_system(objct['objId'], dt)
     if len(path_ids) > 1:
       if g_debug_printf:
-        print('<<<<< >>>>> del systems:', ",".join(path_ids))
+        print('<<<<< >>>>> del systems:', dt, ",".join(path_ids))
+      for id in path_ids:
+        if int(id) != int(objct['objId']):
+          self.storage.del_system(id, dt)
 
   def deleted_signature(self, signature_id, dt, character, objct, path_base, path_ids):
     #print(path_base, '' if not path_ids else ",".join(path_ids))
@@ -79,7 +173,7 @@ class Map:
       print('<<<<< >>>>> del signature:', dt, character['name'], objct['objId'], objct['objName'])
     if len(path_ids) > 1:
       if g_debug_printf:
-        print('<<<<< >>>>> del signatures:', ",".join(path_ids))
+        print('<<<<< >>>>> del signatures:', dt, ",".join(path_ids))
 
   def updated_connection(self, connection_id, dt, character, objct, main, path_base, path_ids):
     #print(path_base, '' if not path_ids else ",".join(path_ids), main)
@@ -124,6 +218,7 @@ class Map:
     else:
       assert path_base == ''
     assert len(set(main.keys()) - set(['active','locked','statusId','description','alias','rallyPoke'])) == 0
+    active = main.get('active')
     locked: bool = True if 'locked' in main and main['locked']['new'] == 1 else None
     statusId: bool = main['statusId'].get('new') if 'statusId' in main else None
     description: str = main['description'].get('new') if 'description' in main else None
@@ -131,6 +226,16 @@ class Map:
     rallyPoke: int = main['rallyPoke'].get('new') if 'rallyPoke' in main else None
     if g_debug_printf:
       print('<<<<< >>>>> upd system:', dt, character['name'], objct['objId'], objct['objName'], locked, statusId, description, alias, rallyPoke)
+    if active:
+      # каким-то образом системы "архивируются?" и не пересоздаются, а переходят из not active в active состояние
+      # это признак того, что они "существуют", поэтому мы должны создать такую систему и держать до её удаления
+      if self.storage.get_system(objct['objId']) is None:
+        self.storage.add_system(objct['objId'], objct['objName'], dt)
+    s: PfSystem = self.storage.upd_system(objct['objId'], objct['objName'], dt)
+    if locked is not None:
+      s.locked = locked
+    if statusId is not None:
+      s.statusId = statusId
 
   def updated_signature(self, signature_id, dt, character, objct, main, path_base, path_ids):
     #print(path_base, '' if not path_ids else ",".join(path_ids), main)
@@ -173,6 +278,7 @@ class Map:
     scope: str = main['scope'].get('new') if 'scope' in main else None  # 'stargate'
     if g_debug_printf:
       print('<<<<< >>>>> add connection:', dt, character['name'], objct['objId'], source, target, typ, scope)
+    c: PfConnection = self.storage.add_connection(objct['objId'], source, target, dt)
 
   def created_system(self, system_id, dt, character, objct, main, path_base, path_ids):
     #print(path_base, '' if not path_ids else ",".join(path_ids), main)
@@ -190,6 +296,11 @@ class Map:
     statusId: bool = main['statusId'].get('new') if 'statusId' in main else None
     if g_debug_printf:
       print('<<<<< >>>>> add system:', dt, character['name'], objct['objId'], objct['objName'], locked, statusId)
+    s: PfSystem = self.storage.add_system(objct['objId'], objct['objName'], dt)
+    if locked is not None:
+      s.locked = locked
+    if statusId is not None:
+      s.statusId = statusId
 
   def created_signature(self, signature_id, dt, character, objct, main, path_base, path_ids):
     #print(path_base, '' if not path_ids else ",".join(path_ids), main)
@@ -228,7 +339,7 @@ def main():
   if not os.path.isfile(argv_prms['map']):
     exit(1)
 
-  map = Map()
+  map = PfMap()
   with open(argv_prms['map']) as f:
     for line in f:
       obj = json.loads(line)
